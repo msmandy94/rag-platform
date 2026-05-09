@@ -86,14 +86,14 @@ async def search(
                 for did in document_ids
             ]
         )
-    res = await (await client()).search(
+    res = await (await client()).query_points(
         collection_name=name,
-        query_vector=query_vec,
+        query=query_vec,
         limit=top_k,
         query_filter=qfilter,
         with_payload=True,
     )
-    return [(str(p.id), float(p.score), p.payload or {}) for p in res]
+    return [(str(p.id), float(p.score), p.payload or {}) for p in res.points]
 
 
 async def delete_document(tenant_id: str, document_id: str) -> None:

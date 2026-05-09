@@ -1,0 +1,26 @@
+Acme Corp Compliance Handbook (Excerpt)
+
+Section 1. Data Retention Policy
+All customer records must be retained for a minimum of seven (7) years from
+the date of the last transaction. After that period, records may be archived
+to cold storage for an additional three (3) years before being permanently
+destroyed. Deletion requests under GDPR or CCPA take precedence over the
+retention schedule and must be honored within 30 days of receipt.
+
+Section 2. Incident Response
+A Severity-1 incident is defined as any event causing total service outage,
+data loss affecting more than 1,000 customers, or unauthorized access to
+production systems. Severity-1 incidents must be acknowledged within 15
+minutes, with a public status update posted within 60 minutes.
+
+Section 3. Vendor Risk
+All third-party vendors handling personal data must complete a SOC 2 Type II
+audit annually. Vendors that store data outside of the United States or
+European Union require explicit Data Protection Officer approval before
+onboarding.
+
+Section 4. Approved AI Providers
+The following Large Language Model providers are approved for production use:
+Anthropic (Claude), OpenAI (GPT-4 family, via Azure only), and Google
+(Gemini, via Vertex AI only). Use of any other provider requires written
+approval from the Chief Information Security Officer.
