@@ -49,6 +49,29 @@ If you want your own tenant, ping the admin endpoint with the
 
 A complete Postman collection lives at [`postman_collection.json`](./postman_collection.json) — import it into Postman (`File → Import`). It pre-fills the demo `base_url`, `api_key`, and `admin_token`, captures the returned `document_id` automatically, and includes happy-path + negative-test requests for every endpoint.
 
+### Sample files
+
+Pre-built sample documents are in [`samples/`](./samples) so you can plug them into the Postman file pickers without finding your own:
+
+| File                             | Use it for                                     |
+|----------------------------------|------------------------------------------------|
+| `samples/compliance_handbook.txt`| Upload (text) — short, single section          |
+| `samples/engineering_design.pdf` | Upload (PDF) — engineering / SLO content       |
+| `samples/customer_contract.pdf`  | Upload (PDF) — legal / contract content        |
+| `samples/hr_onboarding.docx`     | Upload (DOCX) — HR / onboarding content        |
+| `samples/unsupported.zip`        | Negative test (415 unsupported mime)           |
+
+After uploading at least two of the supported docs, try a multi-doc query:
+
+```bash
+curl -sS -X POST "$API/v1/query" \
+  -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"question":"Compare the SLOs in the engineering design with the SLAs in the customer contract."}'
+```
+
+To regenerate the samples, run `python scripts/generate_samples.py` (requires
+`reportlab`, install with `uv pip install reportlab`).
+
 The Hugging Face Spaces frontmatter at the top of this file lets the same repo
 double as the deployment manifest — push the repo to a Space and HF builds and
 runs the Dockerfile.
