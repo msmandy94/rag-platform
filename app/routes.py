@@ -1,0 +1,217 @@
+"""HTTP API surface."""
+from __future__ import annotations
+
+import json
+
+import structlog
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from pydantic import BaseModel, Field
+
+from app.auth import Tenant, generate_api_key, hash_api_key, require_admin, require_tenant
+from app.db import pool
+from app.ingest import enqueue_document
+from app.parsers import SUPPORTED_MIME_TYPES
+from app.ratelimit import check_and_consume
+from app.retrieval import answer_question
+
+log = structlog.get_logger(__name__)
+router = APIRouter()
+
+
+# ---------- Health / root ----------------------------------------------
+
+@router.get("/health")
+async def health() -> dict:
+    return {"status": "ok"}
+
+
+@router.get("/")
+async def root() -> dict:
+    return {
+        "name": "rag-platform",
+        "endpoints": [
+            "POST /v1/documents",
+            "GET  /v1/documents/{id}",
+            "POST /v1/query",
+            "GET  /v1/usage",
+            "POST /admin/tenants",
+        ],
+    }
+
+
+# ---------- Admin: tenant management ------------------------------------
+
+class TenantCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128)
+    rate_limit_query_rpm: int | None = None
+    rate_limit_ingest_rpm: int | None = None
+
+
+class TenantCreated(BaseModel):
+    tenant_id: str
+    name: str
+    api_key: str  # returned once, never again
+
+
+@router.post("/admin/tenants", response_model=TenantCreated, dependencies=[Depends(require_admin)])
+async def create_tenant(body: TenantCreate) -> TenantCreated:
+    api_key = generate_api_key()
+    api_key_hash = hash_api_key(api_key)
+    async with pool().acquire() as conn:
+        try:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO tenants (name, api_key_hash, rate_limit_query_rpm, rate_limit_ingest_rpm)
+                VALUES ($1, $2,
+                        COALESCE($3, 60),
+                        COALESCE($4, 300))
+                RETURNING id::text, name
+                """,
+                body.name,
+                api_key_hash,
+                body.rate_limit_query_rpm,
+                body.rate_limit_ingest_rpm,
+            )
+        except Exception as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    return TenantCreated(tenant_id=row["id"], name=row["name"], api_key=api_key)
+
+
+# ---------- Documents ---------------------------------------------------
+
+class DocumentOut(BaseModel):
+    id: str
+    filename: str
+    mime_type: str
+    size_bytes: int
+    status: str
+    chunk_count: int
+    error: str | None
+    created_at: str
+
+
+@router.post("/v1/documents", response_model=DocumentOut)
+async def upload_document(
+    file: UploadFile = File(...),
+    metadata: str | None = Form(default=None),
+    tenant: Tenant = Depends(require_tenant),
+) -> DocumentOut:
+    await check_and_consume(tenant.id, "ingest", tenant.rate_limit_ingest_rpm)
+
+    mime_type = file.content_type or ""
+    if mime_type not in SUPPORTED_MIME_TYPES:
+        raise HTTPException(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            f"unsupported mime type: {mime_type}. supported: {sorted(SUPPORTED_MIME_TYPES)}",
+        )
+    payload = await file.read()
+    if not payload:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "empty payload")
+
+    if metadata:
+        try:
+            json.loads(metadata)
+        except Exception:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "metadata must be JSON")
+
+    document_id, _new = await enqueue_document(
+        tenant_id=tenant.id,
+        filename=file.filename or "unnamed",
+        mime_type=mime_type,
+        payload=payload,
+    )
+    async with pool().acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT id::text, filename, mime_type, size_bytes, status, chunk_count, error,
+                   to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at
+            FROM documents WHERE id = $1
+            """,
+            document_id,
+        )
+    return DocumentOut(**dict(row))
+
+
+@router.get("/v1/documents/{document_id}", response_model=DocumentOut)
+async def get_document(document_id: str, tenant: Tenant = Depends(require_tenant)) -> DocumentOut:
+    async with pool().acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT id::text, filename, mime_type, size_bytes, status, chunk_count, error,
+                   to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at
+            FROM documents WHERE id = $1 AND tenant_id = $2
+            """,
+            document_id,
+            tenant.id,
+        )
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "document not found")
+    return DocumentOut(**dict(row))
+
+
+# ---------- Query -------------------------------------------------------
+
+class QueryRequest(BaseModel):
+    question: str = Field(..., min_length=1, max_length=2000)
+    top_k: int = Field(default=8, ge=1, le=20)
+    document_ids: list[str] | None = None
+
+
+class QueryResponse(BaseModel):
+    answer: str
+    citations: list[dict]
+    provider: str
+    latency_ms: int
+    input_tokens: int
+    output_tokens: int
+    retrieved: int
+
+
+@router.post("/v1/query", response_model=QueryResponse)
+async def query(
+    body: QueryRequest, tenant: Tenant = Depends(require_tenant)
+) -> QueryResponse:
+    await check_and_consume(tenant.id, "query", tenant.rate_limit_query_rpm)
+    resp = await answer_question(
+        tenant_id=tenant.id,
+        question=body.question,
+        top_k=body.top_k,
+        document_ids=body.document_ids,
+    )
+    return QueryResponse(
+        answer=resp.answer,
+        citations=resp.citations,
+        provider=resp.provider,
+        latency_ms=resp.latency_ms,
+        input_tokens=resp.input_tokens,
+        output_tokens=resp.output_tokens,
+        retrieved=resp.retrieved,
+    )
+
+
+# ---------- Usage / cost ------------------------------------------------
+
+@router.get("/v1/usage")
+async def usage(tenant: Tenant = Depends(require_tenant)) -> dict:
+    async with pool().acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT kind, provider,
+                   COUNT(*) AS events,
+                   COALESCE(SUM(input_tokens), 0) AS input_tokens,
+                   COALESCE(SUM(output_tokens), 0) AS output_tokens,
+                   COALESCE(SUM(embed_chunks), 0) AS embed_chunks,
+                   COALESCE(SUM(cost_usd_micro), 0) AS cost_usd_micro
+            FROM usage_events
+            WHERE tenant_id = $1
+              AND created_at > now() - interval '30 days'
+            GROUP BY kind, provider
+            ORDER BY kind, provider
+            """,
+            tenant.id,
+        )
+    return {
+        "tenant_id": tenant.id,
+        "window": "30d",
+        "rows": [dict(r) for r in rows],
+    }
