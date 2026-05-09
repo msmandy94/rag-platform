@@ -21,6 +21,7 @@ RUN pip install --upgrade pip && pip install -e . --no-deps && pip install \
 
 COPY app/ ./app/
 COPY migrations/ ./migrations/
+COPY static/ ./static/
 
 # Pre-download embedding model into the image so cold starts are fast
 RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-small-en-v1.5')"

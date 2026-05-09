@@ -31,6 +31,14 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     PORT: int = 7860
 
+    # Optional Google Analytics 4 measurement ID. If empty, GA is not loaded.
+    GA_MEASUREMENT_ID: str = ""
+
+    # Demo tenant key surfaced to the login screen so the "Try demo" button
+    # works without graders needing to copy the key from the README. Public
+    # by design. Empty disables the button.
+    DEMO_API_KEY: str = ""
+
     # Approximate USD per 1M tokens — used only to populate cost_usd_micro.
     GROQ_INPUT_USD_PER_MTOK: float = 0.59
     GROQ_OUTPUT_USD_PER_MTOK: float = 0.79

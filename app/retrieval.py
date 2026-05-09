@@ -167,6 +167,7 @@ async def answer_question(
             "filename": h.filename,
             "chunk_index": h.chunk_index,
             "score": round(h.score, 6),
+            "snippet": (h.text[:240] + "…") if len(h.text) > 240 else h.text,
         }
         for i, h in enumerate(hits, start=1)
     ]

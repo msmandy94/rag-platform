@@ -5,9 +5,11 @@ import json
 
 import structlog
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from app.auth import Tenant, generate_api_key, hash_api_key, require_admin, require_tenant
+from app.config import get_settings
 from app.db import pool
 from app.ingest import enqueue_document
 from app.parsers import SUPPORTED_MIME_TYPES
@@ -18,15 +20,35 @@ log = structlog.get_logger(__name__)
 router = APIRouter()
 
 
-# ---------- Health / root ----------------------------------------------
+# ---------- Health -----------------------------------------------------
 
 @router.get("/health")
 async def health() -> dict:
     return {"status": "ok"}
 
 
-@router.get("/")
-async def root() -> dict:
+# ---------- Frontend bootstrap config ----------------------------------
+
+@router.get("/config.js", include_in_schema=False)
+async def config_js() -> Response:
+    """Public bootstrap config consumed by the SPA at load time.
+
+    Surfaces only non-secret values: GA measurement ID and the demo tenant key
+    (the latter is intentionally public — that's what makes the demo a demo).
+    """
+    s = get_settings()
+    js = (
+        f"window.APP_CONFIG = "
+        f'{{"gaMeasurementId": {json.dumps(s.GA_MEASUREMENT_ID)}, '
+        f'"demoApiKey": {json.dumps(s.DEMO_API_KEY)}}};'
+    )
+    return Response(content=js, media_type="application/javascript", headers={
+        "Cache-Control": "no-store",
+    })
+
+
+@router.get("/api", include_in_schema=False)
+async def api_index() -> dict:
     return {
         "name": "rag-platform",
         "endpoints": [
@@ -35,6 +57,7 @@ async def root() -> dict:
             "POST /v1/query",
             "GET  /v1/usage",
             "POST /admin/tenants",
+            "GET  /admin/tenants",
         ],
     }
 
@@ -75,6 +98,37 @@ async def create_tenant(body: TenantCreate) -> TenantCreated:
         except Exception as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
     return TenantCreated(tenant_id=row["id"], name=row["name"], api_key=api_key)
+
+
+@router.get("/admin/tenants", dependencies=[Depends(require_admin)])
+async def list_tenants() -> dict:
+    async with pool().acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT t.id::text AS id,
+                   t.name,
+                   t.rate_limit_query_rpm,
+                   t.rate_limit_ingest_rpm,
+                   to_char(t.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+                   COALESCE(d.cnt, 0) AS document_count,
+                   COALESCE(u.queries, 0) AS queries_30d,
+                   COALESCE(u.cost_usd_micro, 0) AS cost_usd_micro_30d
+            FROM tenants t
+            LEFT JOIN (
+                SELECT tenant_id, COUNT(*)::int AS cnt FROM documents GROUP BY tenant_id
+            ) d ON d.tenant_id = t.id
+            LEFT JOIN (
+                SELECT tenant_id,
+                       COUNT(*) FILTER (WHERE kind='query')::int AS queries,
+                       COALESCE(SUM(cost_usd_micro), 0) AS cost_usd_micro
+                FROM usage_events
+                WHERE created_at > now() - interval '30 days'
+                GROUP BY tenant_id
+            ) u ON u.tenant_id = t.id
+            ORDER BY t.created_at DESC
+            """
+        )
+    return {"tenants": [dict(r) for r in rows]}
 
 
 # ---------- Documents ---------------------------------------------------

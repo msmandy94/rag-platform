@@ -1,0 +1,1024 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-50">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RAG Platform</title>
+  <meta name="description" content="Multi-tenant Retrieval-Augmented Generation platform with hybrid search, citations, and per-tenant cost tracking." />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
+            mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+          },
+        },
+      },
+    };
+  </script>
+
+  <!-- App config (GA id, demo key) is fetched from the server -->
+  <script src="/config.js"></script>
+
+  <!-- Conditional Google Analytics 4 — loads only if GA_MEASUREMENT_ID is set -->
+  <script>
+    (function () {
+      var id = (window.APP_CONFIG && window.APP_CONFIG.gaMeasurementId) || '';
+      if (!id) return;
+      var s = document.createElement('script');
+      s.async = true;
+      s.src = 'https://www.googletagmanager.com/gtag/js?id=' + encodeURIComponent(id);
+      document.head.appendChild(s);
+      window.dataLayer = window.dataLayer || [];
+      window.gtag = function () { dataLayer.push(arguments); };
+      gtag('js', new Date());
+      gtag('config', id, { anonymize_ip: true });
+    })();
+  </script>
+
+  <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
+
+  <style>
+    [x-cloak] { display: none !important; }
+    .scrollbar-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background: rgb(203 213 225); border-radius: 4px; }
+    .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+    .gradient-bg {
+      background:
+        radial-gradient(60% 50% at 50% 0%, rgb(238 242 255) 0%, transparent 70%),
+        linear-gradient(180deg, rgb(248 250 252) 0%, rgb(255 255 255) 100%);
+    }
+  </style>
+</head>
+<body class="h-full font-sans text-slate-900 antialiased">
+
+<div x-data="app()" x-init="init()" x-cloak class="min-h-full">
+
+  <!-- ====================================================== -->
+  <!-- LOGIN                                                   -->
+  <!-- ====================================================== -->
+  <template x-if="authStatus === 'login'">
+    <div class="min-h-screen gradient-bg flex flex-col">
+      <header class="px-6 py-5 flex items-center justify-between max-w-7xl w-full mx-auto">
+        <div class="flex items-center gap-2.5">
+          <span class="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 text-white shadow-sm">
+            <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 7h16M4 12h10M4 17h7" />
+              <circle cx="18" cy="16" r="3.2" />
+              <path d="M20.4 18.4 22 20" />
+            </svg>
+          </span>
+          <span class="text-lg font-semibold tracking-tight">RAG Platform</span>
+        </div>
+        <a href="https://github.com/msmandy94/rag-platform" target="_blank" rel="noreferrer" class="text-sm text-slate-600 hover:text-slate-900 inline-flex items-center gap-1.5">
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path fill-rule="evenodd" d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.36 6.84 9.72.5.1.68-.22.68-.49 0-.24-.01-.88-.01-1.72-2.78.62-3.37-1.36-3.37-1.36-.45-1.18-1.11-1.5-1.11-1.5-.91-.63.07-.62.07-.62 1 .07 1.53 1.05 1.53 1.05.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.37-2.22-.26-4.55-1.14-4.55-5.06 0-1.12.39-2.04 1.03-2.76-.1-.26-.45-1.3.1-2.71 0 0 .84-.27 2.75 1.05A9.4 9.4 0 0 1 12 6.84c.85.004 1.71.12 2.51.34 1.91-1.32 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.64 1.03 2.76 0 3.93-2.34 4.79-4.57 5.05.36.32.68.94.68 1.9 0 1.37-.01 2.47-.01 2.81 0 .27.18.59.69.49A10.05 10.05 0 0 0 22 12.25C22 6.58 17.52 2 12 2Z" clip-rule="evenodd"/></svg>
+          GitHub
+        </a>
+      </header>
+
+      <main class="flex-1 flex items-center justify-center px-6 pb-12">
+        <div class="w-full max-w-md">
+          <div class="text-center mb-7">
+            <h1 class="text-3xl font-semibold tracking-tight">Sign in</h1>
+            <p class="mt-2 text-sm text-slate-600">Enter your tenant API key, or try the demo workspace.</p>
+          </div>
+
+          <div class="bg-white rounded-2xl shadow-sm ring-1 ring-slate-200 p-6 space-y-5">
+            <form @submit.prevent="signInWithKey()">
+              <label class="block text-sm font-medium text-slate-700">API key</label>
+              <div class="mt-1.5 relative">
+                <input
+                  x-model="apiKeyInput"
+                  type="password"
+                  autocomplete="off"
+                  placeholder="rag_..."
+                  class="block w-full rounded-lg border-0 py-2.5 px-3 text-slate-900 ring-1 ring-inset ring-slate-300 placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-600 text-sm font-mono"
+                  required
+                />
+              </div>
+              <button
+                type="submit"
+                :disabled="loginLoading"
+                class="mt-4 w-full inline-flex justify-center items-center gap-2 rounded-lg bg-indigo-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <span x-show="!loginLoading">Sign in</span>
+                <span x-show="loginLoading" class="inline-flex items-center gap-2">
+                  <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-opacity="0.3" stroke-width="3"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+                  Signing in
+                </span>
+              </button>
+            </form>
+
+            <template x-if="hasDemo">
+              <div>
+                <div class="relative my-1">
+                  <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-slate-200"></div></div>
+                  <div class="relative flex justify-center"><span class="bg-white px-2 text-xs text-slate-500">or</span></div>
+                </div>
+                <button
+                  @click="signInDemo()"
+                  :disabled="loginLoading"
+                  class="w-full inline-flex justify-center items-center gap-2 rounded-lg bg-slate-50 px-3.5 py-2.5 text-sm font-semibold text-slate-700 ring-1 ring-inset ring-slate-200 hover:bg-slate-100 disabled:opacity-60"
+                >
+                  Try with demo tenant
+                </button>
+              </div>
+            </template>
+          </div>
+
+          <p class="mt-5 text-center text-sm text-slate-600">
+            Platform admin?
+            <button @click="showAdminLogin = true" class="font-medium text-indigo-600 hover:text-indigo-500">Admin sign in →</button>
+          </p>
+        </div>
+      </main>
+    </div>
+  </template>
+
+  <!-- ====================================================== -->
+  <!-- ADMIN LOGIN MODAL                                       -->
+  <!-- ====================================================== -->
+  <template x-if="showAdminLogin">
+    <div class="fixed inset-0 z-40 flex items-center justify-center px-4">
+      <div class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" @click="showAdminLogin = false"></div>
+      <div class="relative bg-white rounded-2xl shadow-xl ring-1 ring-slate-200 p-6 w-full max-w-md">
+        <h3 class="text-base font-semibold tracking-tight">Admin sign in</h3>
+        <p class="mt-1 text-sm text-slate-600">Enter your platform admin token to manage tenants.</p>
+        <form @submit.prevent="signInAdmin()" class="mt-5">
+          <input
+            x-model="adminTokenInput"
+            type="password"
+            placeholder="admin_..."
+            class="block w-full rounded-lg border-0 py-2.5 px-3 text-slate-900 ring-1 ring-inset ring-slate-300 placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-600 text-sm font-mono"
+            required
+          />
+          <div class="mt-4 flex gap-2 justify-end">
+            <button type="button" @click="showAdminLogin = false" class="px-3.5 py-2 text-sm font-medium text-slate-700 hover:text-slate-900">Cancel</button>
+            <button type="submit" :disabled="loginLoading" class="rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-60">Sign in</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </template>
+
+  <!-- ====================================================== -->
+  <!-- AUTHENTICATED APP                                       -->
+  <!-- ====================================================== -->
+  <template x-if="authStatus !== 'login'">
+    <div class="min-h-screen flex flex-col bg-slate-50">
+
+      <!-- Top nav -->
+      <header class="bg-white border-b border-slate-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6">
+          <div class="h-14 flex items-center justify-between">
+            <div class="flex items-center gap-7">
+              <div class="flex items-center gap-2">
+                <span class="inline-flex h-7 w-7 items-center justify-center rounded-md bg-indigo-600 text-white">
+                  <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h10M4 17h7"/><circle cx="18" cy="16" r="3.2"/><path d="M20.4 18.4 22 20"/></svg>
+                </span>
+                <span class="text-sm font-semibold tracking-tight">RAG Platform</span>
+              </div>
+
+              <nav class="flex items-center gap-1">
+                <template x-if="authStatus === 'tenant'">
+                  <div class="flex items-center gap-1">
+                    <button @click="setTab('chat')" :class="navClass('chat')">Chat</button>
+                    <button @click="setTab('documents')" :class="navClass('documents')">Documents</button>
+                    <button @click="setTab('usage')" :class="navClass('usage')">Usage</button>
+                  </div>
+                </template>
+                <template x-if="authStatus === 'admin'">
+                  <button @click="setTab('admin')" :class="navClass('admin')">Tenants</button>
+                </template>
+              </nav>
+            </div>
+
+            <div class="flex items-center gap-3">
+              <template x-if="authStatus === 'tenant'">
+                <span class="text-xs text-slate-600 hidden sm:inline-flex items-center gap-1.5">
+                  <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                  Signed in
+                </span>
+              </template>
+              <template x-if="authStatus === 'admin'">
+                <span class="text-xs font-medium text-amber-700 bg-amber-50 ring-1 ring-amber-200 rounded-full px-2 py-0.5">Admin</span>
+              </template>
+              <button @click="signOut()" class="text-sm text-slate-600 hover:text-slate-900">Sign out</button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 py-6 sm:py-8">
+
+        <!-- =========================== -->
+        <!-- CHAT                         -->
+        <!-- =========================== -->
+        <template x-if="authStatus === 'tenant' && tab === 'chat'">
+          <div class="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
+            <div class="bg-white rounded-2xl ring-1 ring-slate-200 shadow-sm flex flex-col h-[calc(100vh-9.5rem)] min-h-[480px]">
+              <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+                <div>
+                  <h2 class="text-sm font-semibold tracking-tight">Ask a question</h2>
+                  <p class="text-xs text-slate-500 mt-0.5">Hybrid retrieval (BM25 + vector) → re-ranked → grounded answer with citations.</p>
+                </div>
+                <button @click="messages = []" class="text-xs text-slate-500 hover:text-slate-700">Clear</button>
+              </div>
+
+              <div class="flex-1 overflow-y-auto px-5 py-5 space-y-6 scrollbar-thin" id="chat-scroll">
+                <template x-if="messages.length === 0">
+                  <div class="text-center py-10">
+                    <div class="text-sm text-slate-500">Try a sample question.</div>
+                    <div class="mt-3 flex flex-wrap gap-2 justify-center">
+                      <template x-for="s in sampleQuestions" :key="s">
+                        <button @click="question = s; ask()" class="text-xs bg-slate-50 hover:bg-slate-100 ring-1 ring-slate-200 rounded-full px-3 py-1.5 text-slate-700" x-text="s"></button>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+
+                <template x-for="(m, idx) in messages" :key="idx">
+                  <div>
+                    <template x-if="m.role === 'user'">
+                      <div class="flex justify-end">
+                        <div class="max-w-[80%] bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm whitespace-pre-wrap" x-text="m.text"></div>
+                      </div>
+                    </template>
+                    <template x-if="m.role === 'assistant'">
+                      <div>
+                        <div class="flex items-start gap-3">
+                          <div class="h-7 w-7 rounded-md bg-slate-900 text-white flex items-center justify-center flex-shrink-0 mt-0.5">
+                            <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M4 12h10M4 17h7"/></svg>
+                          </div>
+                          <div class="flex-1 min-w-0">
+                            <template x-if="m.loading">
+                              <div class="text-sm text-slate-500 inline-flex items-center gap-2">
+                                <svg class="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-opacity="0.3" stroke-width="3"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+                                <span x-text="m.stage || 'Retrieving and synthesizing…'"></span>
+                              </div>
+                            </template>
+                            <template x-if="!m.loading">
+                              <div>
+                                <div class="text-sm leading-relaxed text-slate-800 whitespace-pre-wrap" x-text="m.text"></div>
+                                <template x-if="m.error">
+                                  <div class="mt-2 text-xs text-red-600" x-text="m.error"></div>
+                                </template>
+                                <template x-if="m.citations && m.citations.length">
+                                  <div class="mt-3 space-y-1.5">
+                                    <div class="text-[11px] uppercase tracking-wide text-slate-500 font-medium">Sources</div>
+                                    <template x-for="c in m.citations" :key="c.chunk_id">
+                                      <div class="bg-slate-50 ring-1 ring-slate-200 rounded-lg px-3 py-2">
+                                        <div class="flex items-center justify-between gap-3 text-xs">
+                                          <div class="flex items-center gap-2 min-w-0">
+                                            <span class="inline-flex h-5 w-5 rounded bg-indigo-50 text-indigo-700 items-center justify-center font-medium text-[11px]" x-text="c.n"></span>
+                                            <span class="font-medium text-slate-700 truncate" x-text="c.filename"></span>
+                                            <span class="text-slate-400">·</span>
+                                            <span class="text-slate-500">chunk <span x-text="c.chunk_index"></span></span>
+                                          </div>
+                                          <span class="font-mono text-[11px] text-slate-500">score <span x-text="c.score.toFixed(3)"></span></span>
+                                        </div>
+                                        <template x-if="c.snippet">
+                                          <div class="mt-1.5 text-[12px] text-slate-600 line-clamp-3" x-text="c.snippet"></div>
+                                        </template>
+                                      </div>
+                                    </template>
+                                  </div>
+                                </template>
+                                <template x-if="m.meta">
+                                  <div class="mt-2 flex items-center gap-3 text-[11px] text-slate-500 font-mono">
+                                    <span>provider: <span x-text="m.meta.provider"></span></span>
+                                    <span>·</span>
+                                    <span x-text="m.meta.latency_ms + 'ms'"></span>
+                                    <span>·</span>
+                                    <span><span x-text="m.meta.input_tokens"></span> in / <span x-text="m.meta.output_tokens"></span> out</span>
+                                  </div>
+                                </template>
+                              </div>
+                            </template>
+                          </div>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+              </div>
+
+              <div class="border-t border-slate-200 p-3">
+                <form @submit.prevent="ask()" class="flex items-end gap-2">
+                  <textarea
+                    x-model="question"
+                    @keydown.enter="if (!$event.shiftKey) { $event.preventDefault(); ask(); }"
+                    rows="1"
+                    placeholder="Ask anything across your documents…"
+                    class="flex-1 resize-none rounded-lg border-0 py-2.5 px-3 text-sm ring-1 ring-inset ring-slate-300 placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-600 max-h-32"
+                  ></textarea>
+                  <button
+                    type="submit"
+                    :disabled="!question.trim() || asking"
+                    class="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 disabled:opacity-50"
+                  >
+                    Send
+                    <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                  </button>
+                </form>
+              </div>
+            </div>
+
+            <!-- Right rail: settings -->
+            <aside class="space-y-4">
+              <div class="bg-white rounded-2xl ring-1 ring-slate-200 shadow-sm p-5">
+                <h3 class="text-sm font-semibold tracking-tight">Retrieval settings</h3>
+                <div class="mt-4">
+                  <label class="text-xs font-medium text-slate-700">Top K passages</label>
+                  <div class="mt-1.5 flex items-center gap-3">
+                    <input type="range" min="1" max="20" x-model.number="topK" class="flex-1 accent-indigo-600" />
+                    <span class="font-mono text-xs text-slate-700 w-7 text-right" x-text="topK"></span>
+                  </div>
+                  <p class="mt-1.5 text-xs text-slate-500">More passages → better recall, more tokens.</p>
+                </div>
+              </div>
+
+              <div class="bg-white rounded-2xl ring-1 ring-slate-200 shadow-sm p-5">
+                <h3 class="text-sm font-semibold tracking-tight">How it works</h3>
+                <ol class="mt-3 space-y-2 text-xs text-slate-600 list-decimal list-inside">
+                  <li>Embed the question with BGE-small.</li>
+                  <li>Run BM25 on Postgres + vector on Qdrant.</li>
+                  <li>Merge with Reciprocal Rank Fusion.</li>
+                  <li>Synthesize via Groq Llama 3.3 70B.</li>
+                  <li>If Groq fails, fall back to Gemini.</li>
+                </ol>
+              </div>
+            </aside>
+          </div>
+        </template>
+
+        <!-- =========================== -->
+        <!-- DOCUMENTS                    -->
+        <!-- =========================== -->
+        <template x-if="authStatus === 'tenant' && tab === 'documents'">
+          <div class="space-y-6">
+            <div>
+              <h2 class="text-lg font-semibold tracking-tight">Documents</h2>
+              <p class="text-sm text-slate-600 mt-0.5">Upload PDFs, DOCX, or text files. Indexing runs asynchronously — the table refreshes automatically.</p>
+            </div>
+
+            <!-- Upload zone -->
+            <div
+              class="bg-white rounded-2xl ring-1 ring-slate-200 shadow-sm p-6"
+              @dragover.prevent="dragActive = true"
+              @dragleave.prevent="dragActive = false"
+              @drop.prevent="dragActive = false; handleFiles($event.dataTransfer.files)"
+            >
+              <label
+                :class="dragActive ? 'border-indigo-500 bg-indigo-50/50' : 'border-slate-300 hover:bg-slate-50'"
+                class="flex flex-col items-center justify-center border-2 border-dashed rounded-xl py-10 cursor-pointer transition-colors"
+              >
+                <svg class="h-10 w-10 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 16V4M7 9l5-5 5 5M5 20h14"/>
+                </svg>
+                <span class="mt-3 text-sm font-medium text-slate-700">Drop files here, or click to browse</span>
+                <span class="mt-1 text-xs text-slate-500">PDF · DOCX · TXT — up to 10 MB each</span>
+                <input type="file" multiple class="hidden" @change="handleFiles($event.target.files)"
+                       accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown" />
+              </label>
+
+              <template x-if="uploadingFiles.length">
+                <div class="mt-4 space-y-2">
+                  <template x-for="u in uploadingFiles" :key="u.id">
+                    <div class="flex items-center justify-between text-sm bg-slate-50 ring-1 ring-slate-200 rounded-lg px-3 py-2">
+                      <div class="min-w-0 truncate">
+                        <span class="font-medium text-slate-700" x-text="u.name"></span>
+                        <span class="text-slate-500 ml-2" x-text="formatBytes(u.size)"></span>
+                      </div>
+                      <span class="text-xs" :class="u.error ? 'text-red-600' : 'text-slate-500'" x-text="u.error || u.status"></span>
+                    </div>
+                  </template>
+                </div>
+              </template>
+            </div>
+
+            <!-- Documents table -->
+            <div class="bg-white rounded-2xl ring-1 ring-slate-200 shadow-sm overflow-hidden">
+              <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+                <h3 class="text-sm font-semibold tracking-tight">Recent uploads</h3>
+                <button @click="loadDocuments()" class="text-xs text-slate-600 hover:text-slate-900 inline-flex items-center gap-1">
+                  <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg>
+                  Refresh
+                </button>
+              </div>
+              <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-slate-200">
+                  <thead class="bg-slate-50/60">
+                    <tr class="text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+                      <th class="px-5 py-2.5">File</th>
+                      <th class="px-5 py-2.5">Status</th>
+                      <th class="px-5 py-2.5">Chunks</th>
+                      <th class="px-5 py-2.5">Size</th>
+                      <th class="px-5 py-2.5">Uploaded</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-100">
+                    <template x-if="!documents.length">
+                      <tr><td colspan="5" class="px-5 py-10 text-center text-sm text-slate-500">No documents yet — upload one above.</td></tr>
+                    </template>
+                    <template x-for="d in documents" :key="d.id">
+                      <tr class="hover:bg-slate-50/60">
+                        <td class="px-5 py-3 text-sm">
+                          <div class="font-medium text-slate-700 truncate max-w-xs" x-text="d.filename"></div>
+                          <div class="text-[11px] text-slate-400 font-mono" x-text="d.id"></div>
+                        </td>
+                        <td class="px-5 py-3">
+                          <span :class="statusBadgeClass(d.status)" class="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium">
+                            <span :class="statusDotClass(d.status)" class="h-1.5 w-1.5 rounded-full"></span>
+                            <span x-text="d.status"></span>
+                          </span>
+                          <template x-if="d.error">
+                            <div class="mt-1 text-[11px] text-red-600 truncate max-w-xs" x-text="d.error"></div>
+                          </template>
+                        </td>
+                        <td class="px-5 py-3 text-sm text-slate-600 font-mono" x-text="d.chunk_count"></td>
+                        <td class="px-5 py-3 text-sm text-slate-600" x-text="formatBytes(d.size_bytes)"></td>
+                        <td class="px-5 py-3 text-sm text-slate-500" x-text="relTime(d.created_at)"></td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- =========================== -->
+        <!-- USAGE                        -->
+        <!-- =========================== -->
+        <template x-if="authStatus === 'tenant' && tab === 'usage'">
+          <div class="space-y-6">
+            <div>
+              <h2 class="text-lg font-semibold tracking-tight">Usage</h2>
+              <p class="text-sm text-slate-600 mt-0.5">Tokens, costs, and chunks for the last 30 days. Cost is computed from public list pricing per provider.</p>
+            </div>
+
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <template x-for="k in usageKpis" :key="k.label">
+                <div class="bg-white rounded-2xl ring-1 ring-slate-200 shadow-sm p-5">
+                  <div class="text-xs font-medium text-slate-500" x-text="k.label"></div>
+                  <div class="mt-1.5 text-2xl font-semibold tracking-tight" x-text="k.value"></div>
+                  <div class="mt-1 text-[11px] text-slate-400" x-text="k.sub"></div>
+                </div>
+              </template>
+            </div>
+
+            <div class="bg-white rounded-2xl ring-1 ring-slate-200 shadow-sm overflow-hidden">
+              <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+                <h3 class="text-sm font-semibold tracking-tight">Breakdown</h3>
+                <button @click="loadUsage()" class="text-xs text-slate-600 hover:text-slate-900">Refresh</button>
+              </div>
+              <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-slate-200">
+                  <thead class="bg-slate-50/60">
+                    <tr class="text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+                      <th class="px-5 py-2.5">Kind</th>
+                      <th class="px-5 py-2.5">Provider</th>
+                      <th class="px-5 py-2.5 text-right">Events</th>
+                      <th class="px-5 py-2.5 text-right">Input tokens</th>
+                      <th class="px-5 py-2.5 text-right">Output tokens</th>
+                      <th class="px-5 py-2.5 text-right">Embed chunks</th>
+                      <th class="px-5 py-2.5 text-right">Cost (USD)</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-100">
+                    <template x-if="!(usage && usage.rows && usage.rows.length)">
+                      <tr><td colspan="7" class="px-5 py-10 text-center text-sm text-slate-500">No activity in the last 30 days.</td></tr>
+                    </template>
+                    <template x-for="r in (usage && usage.rows) || []" :key="r.kind + r.provider">
+                      <tr>
+                        <td class="px-5 py-3 text-sm" x-text="r.kind"></td>
+                        <td class="px-5 py-3 text-sm font-mono" x-text="r.provider"></td>
+                        <td class="px-5 py-3 text-sm text-right font-mono" x-text="r.events"></td>
+                        <td class="px-5 py-3 text-sm text-right font-mono" x-text="r.input_tokens"></td>
+                        <td class="px-5 py-3 text-sm text-right font-mono" x-text="r.output_tokens"></td>
+                        <td class="px-5 py-3 text-sm text-right font-mono" x-text="r.embed_chunks"></td>
+                        <td class="px-5 py-3 text-sm text-right font-mono" x-text="formatCostMicro(r.cost_usd_micro)"></td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- =========================== -->
+        <!-- ADMIN                        -->
+        <!-- =========================== -->
+        <template x-if="authStatus === 'admin' && tab === 'admin'">
+          <div class="space-y-6">
+            <div class="flex items-end justify-between">
+              <div>
+                <h2 class="text-lg font-semibold tracking-tight">Tenants</h2>
+                <p class="text-sm text-slate-600 mt-0.5">Create new tenants and view their usage. The API key is shown only once at creation time.</p>
+              </div>
+              <button @click="showCreateTenant = true" class="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-500">
+                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                New tenant
+              </button>
+            </div>
+
+            <div class="bg-white rounded-2xl ring-1 ring-slate-200 shadow-sm overflow-hidden">
+              <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-slate-200">
+                  <thead class="bg-slate-50/60">
+                    <tr class="text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+                      <th class="px-5 py-2.5">Name</th>
+                      <th class="px-5 py-2.5">Documents</th>
+                      <th class="px-5 py-2.5">Queries (30d)</th>
+                      <th class="px-5 py-2.5">Cost (30d)</th>
+                      <th class="px-5 py-2.5">Rate limits</th>
+                      <th class="px-5 py-2.5">Created</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-100">
+                    <template x-if="!tenants.length">
+                      <tr><td colspan="6" class="px-5 py-10 text-center text-sm text-slate-500">No tenants yet.</td></tr>
+                    </template>
+                    <template x-for="t in tenants" :key="t.id">
+                      <tr>
+                        <td class="px-5 py-3 text-sm">
+                          <div class="font-medium text-slate-700" x-text="t.name"></div>
+                          <div class="text-[11px] text-slate-400 font-mono" x-text="t.id"></div>
+                        </td>
+                        <td class="px-5 py-3 text-sm font-mono" x-text="t.document_count"></td>
+                        <td class="px-5 py-3 text-sm font-mono" x-text="t.queries_30d"></td>
+                        <td class="px-5 py-3 text-sm font-mono" x-text="formatCostMicro(t.cost_usd_micro_30d)"></td>
+                        <td class="px-5 py-3 text-sm font-mono text-slate-600">
+                          <span x-text="t.rate_limit_query_rpm"></span>q · <span x-text="t.rate_limit_ingest_rpm"></span>i / min
+                        </td>
+                        <td class="px-5 py-3 text-sm text-slate-500" x-text="relTime(t.created_at)"></td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </template>
+
+      </main>
+
+      <!-- =========================== -->
+      <!-- CREATE TENANT MODAL          -->
+      <!-- =========================== -->
+      <template x-if="showCreateTenant">
+        <div class="fixed inset-0 z-40 flex items-center justify-center px-4">
+          <div class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" @click="closeCreateTenant()"></div>
+          <div class="relative bg-white rounded-2xl shadow-xl ring-1 ring-slate-200 p-6 w-full max-w-md">
+            <template x-if="!newlyCreatedTenant">
+              <div>
+                <h3 class="text-base font-semibold tracking-tight">Create tenant</h3>
+                <p class="mt-1 text-sm text-slate-600">A new isolated workspace with its own API key, vector collection, and quotas.</p>
+                <form @submit.prevent="createTenant()" class="mt-5 space-y-4">
+                  <div>
+                    <label class="block text-xs font-medium text-slate-700">Name</label>
+                    <input x-model="newTenant.name" required maxlength="128" placeholder="acme-corp" class="mt-1 block w-full rounded-lg border-0 py-2 px-3 text-sm ring-1 ring-inset ring-slate-300 focus:ring-2 focus:ring-indigo-600" />
+                  </div>
+                  <div class="grid grid-cols-2 gap-3">
+                    <div>
+                      <label class="block text-xs font-medium text-slate-700">Query RPM</label>
+                      <input type="number" min="1" x-model.number="newTenant.rate_limit_query_rpm" placeholder="60" class="mt-1 block w-full rounded-lg border-0 py-2 px-3 text-sm font-mono ring-1 ring-inset ring-slate-300 focus:ring-2 focus:ring-indigo-600" />
+                    </div>
+                    <div>
+                      <label class="block text-xs font-medium text-slate-700">Ingest RPM</label>
+                      <input type="number" min="1" x-model.number="newTenant.rate_limit_ingest_rpm" placeholder="300" class="mt-1 block w-full rounded-lg border-0 py-2 px-3 text-sm font-mono ring-1 ring-inset ring-slate-300 focus:ring-2 focus:ring-indigo-600" />
+                    </div>
+                  </div>
+                  <div class="flex justify-end gap-2 pt-2">
+                    <button type="button" @click="closeCreateTenant()" class="px-3 py-2 text-sm font-medium text-slate-700 hover:text-slate-900">Cancel</button>
+                    <button type="submit" :disabled="creatingTenant" class="rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-60">Create</button>
+                  </div>
+                </form>
+              </div>
+            </template>
+            <template x-if="newlyCreatedTenant">
+              <div>
+                <div class="flex items-center gap-2.5">
+                  <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                    <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg>
+                  </span>
+                  <h3 class="text-base font-semibold tracking-tight">Tenant created</h3>
+                </div>
+                <p class="mt-2 text-sm text-slate-600">Save this API key now — it won't be shown again.</p>
+                <div class="mt-4 bg-slate-900 text-slate-100 rounded-lg p-3 font-mono text-xs break-all" x-text="newlyCreatedTenant.api_key"></div>
+                <div class="mt-3 flex justify-between items-center">
+                  <button @click="copy(newlyCreatedTenant.api_key)" class="text-xs text-indigo-600 hover:text-indigo-500 inline-flex items-center gap-1">
+                    <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+                    Copy to clipboard
+                  </button>
+                  <button @click="closeCreateTenant()" class="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800">Done</button>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+
+    </div>
+  </template>
+
+  <!-- ====================================================== -->
+  <!-- TOAST                                                    -->
+  <!-- ====================================================== -->
+  <div
+    x-show="toast.show"
+    x-transition:enter="transition ease-out duration-150"
+    x-transition:enter-start="opacity-0 translate-y-2"
+    x-transition:enter-end="opacity-100 translate-y-0"
+    x-transition:leave="transition ease-in duration-150"
+    x-transition:leave-start="opacity-100"
+    x-transition:leave-end="opacity-0"
+    class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50"
+  >
+    <div :class="toast.kind === 'error' ? 'bg-red-600' : 'bg-slate-900'" class="text-white text-sm px-4 py-2.5 rounded-lg shadow-lg" x-text="toast.text"></div>
+  </div>
+
+</div>
+
+<script>
+  function app() {
+    return {
+      // -------- bootstrap config --------
+      get hasDemo() { return !!(window.APP_CONFIG && window.APP_CONFIG.demoApiKey); },
+
+      // -------- auth state --------
+      authStatus: 'login',          // 'login' | 'tenant' | 'admin'
+      apiKey: '',
+      adminToken: '',
+      apiKeyInput: '',
+      adminTokenInput: '',
+      showAdminLogin: false,
+      loginLoading: false,
+
+      // -------- ui state --------
+      tab: 'chat',
+      toast: { show: false, text: '', kind: 'success' },
+      toastTimer: null,
+
+      // -------- chat --------
+      messages: [],
+      question: '',
+      topK: 5,
+      asking: false,
+      sampleQuestions: [
+        'What is the data retention period?',
+        'Which AI providers are approved?',
+        'Compare the engineering SLOs with the customer SLAs.',
+        'How long is the probation period?',
+      ],
+
+      // -------- documents --------
+      documents: [],
+      uploadingFiles: [],
+      dragActive: false,
+      docPollTimer: null,
+
+      // -------- usage --------
+      usage: null,
+
+      // -------- admin --------
+      tenants: [],
+      showCreateTenant: false,
+      creatingTenant: false,
+      newTenant: { name: '', rate_limit_query_rpm: '', rate_limit_ingest_rpm: '' },
+      newlyCreatedTenant: null,
+
+      // ========================================================
+      // INIT
+      // ========================================================
+      init() {
+        const savedKey = localStorage.getItem('rag.apiKey');
+        if (savedKey) {
+          this.apiKey = savedKey;
+          this.authStatus = 'tenant';
+          this.afterTenantSignIn();
+        }
+      },
+
+      // ========================================================
+      // AUTH
+      // ========================================================
+      async signInWithKey() {
+        if (!this.apiKeyInput.trim()) return;
+        this.loginLoading = true;
+        try {
+          // Validate by hitting /v1/usage (cheap, requires auth, returns 401 if bad)
+          const ok = await this.validateTenantKey(this.apiKeyInput.trim());
+          if (!ok) { this.showToast('Invalid API key', 'error'); return; }
+          this.apiKey = this.apiKeyInput.trim();
+          localStorage.setItem('rag.apiKey', this.apiKey);
+          this.authStatus = 'tenant';
+          this.afterTenantSignIn();
+        } finally { this.loginLoading = false; }
+      },
+
+      signInDemo() {
+        const key = window.APP_CONFIG && window.APP_CONFIG.demoApiKey;
+        if (!key) return;
+        this.apiKey = key;
+        localStorage.setItem('rag.apiKey', key);
+        this.authStatus = 'tenant';
+        this.afterTenantSignIn();
+      },
+
+      async signInAdmin() {
+        if (!this.adminTokenInput.trim()) return;
+        this.loginLoading = true;
+        try {
+          const r = await fetch('/admin/tenants', { headers: { Authorization: 'Bearer ' + this.adminTokenInput.trim() } });
+          if (!r.ok) { this.showToast('Invalid admin token', 'error'); return; }
+          this.adminToken = this.adminTokenInput.trim();
+          this.authStatus = 'admin';
+          this.tab = 'admin';
+          this.showAdminLogin = false;
+          await this.loadTenants();
+        } finally { this.loginLoading = false; }
+      },
+
+      async validateTenantKey(key) {
+        try {
+          const r = await fetch('/v1/usage', { headers: { Authorization: 'Bearer ' + key } });
+          return r.ok;
+        } catch { return false; }
+      },
+
+      signOut() {
+        this.apiKey = ''; this.adminToken = '';
+        this.apiKeyInput = ''; this.adminTokenInput = '';
+        localStorage.removeItem('rag.apiKey');
+        this.authStatus = 'login';
+        this.messages = []; this.documents = []; this.usage = null; this.tenants = [];
+        clearInterval(this.docPollTimer);
+      },
+
+      afterTenantSignIn() {
+        this.tab = 'chat';
+        this.loadDocuments();
+        this.loadUsage();
+      },
+
+      // ========================================================
+      // TABS
+      // ========================================================
+      setTab(t) {
+        this.tab = t;
+        if (t === 'documents') this.loadDocuments();
+        if (t === 'usage') this.loadUsage();
+        if (t === 'admin') this.loadTenants();
+      },
+      navClass(t) {
+        const base = 'px-3 py-1.5 rounded-md text-sm font-medium transition-colors';
+        return this.tab === t
+          ? base + ' bg-slate-100 text-slate-900'
+          : base + ' text-slate-600 hover:text-slate-900 hover:bg-slate-50';
+      },
+
+      // ========================================================
+      // CHAT
+      // ========================================================
+      async ask() {
+        const q = (this.question || '').trim();
+        if (!q || this.asking) return;
+        this.messages.push({ role: 'user', text: q });
+        const placeholder = { role: 'assistant', loading: true, stage: 'Retrieving and synthesizing…' };
+        this.messages.push(placeholder);
+        this.question = ''; this.asking = true;
+        this.scrollChatToBottom();
+        try {
+          const r = await fetch('/v1/query', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + this.apiKey },
+            body: JSON.stringify({ question: q, top_k: this.topK }),
+          });
+          if (!r.ok) {
+            const err = await r.text();
+            placeholder.loading = false;
+            placeholder.text = '';
+            placeholder.error = 'Request failed (' + r.status + '): ' + err.slice(0, 200);
+            return;
+          }
+          const j = await r.json();
+          placeholder.loading = false;
+          placeholder.text = j.answer;
+          placeholder.citations = j.citations;
+          placeholder.meta = { provider: j.provider, latency_ms: j.latency_ms, input_tokens: j.input_tokens, output_tokens: j.output_tokens };
+          this.scrollChatToBottom();
+        } catch (e) {
+          placeholder.loading = false;
+          placeholder.error = 'Network error: ' + (e && e.message);
+        } finally {
+          this.asking = false;
+        }
+      },
+
+      scrollChatToBottom() {
+        this.$nextTick(() => {
+          const el = document.getElementById('chat-scroll');
+          if (el) el.scrollTop = el.scrollHeight;
+        });
+      },
+
+      // ========================================================
+      // DOCUMENTS
+      // ========================================================
+      async loadDocuments() {
+        // The platform doesn't expose a "list documents" endpoint in v1; the
+        // table here is built from the documents we've uploaded in this
+        // session (persisted in localStorage by id) plus per-doc /v1/documents/:id.
+        const ids = this.knownDocIds();
+        const out = [];
+        for (const id of ids) {
+          try {
+            const r = await fetch('/v1/documents/' + id, { headers: { Authorization: 'Bearer ' + this.apiKey } });
+            if (r.ok) out.push(await r.json());
+          } catch {}
+        }
+        out.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+        this.documents = out;
+        // Keep polling while any doc is still processing.
+        clearInterval(this.docPollTimer);
+        if (out.some(d => d.status === 'pending' || d.status === 'processing')) {
+          this.docPollTimer = setInterval(() => this.loadDocuments(), 3000);
+        }
+      },
+
+      knownDocIds() {
+        const k = 'rag.docs.' + this.apiKey.slice(-8);
+        try { return JSON.parse(localStorage.getItem(k) || '[]'); } catch { return []; }
+      },
+      addKnownDocId(id) {
+        const k = 'rag.docs.' + this.apiKey.slice(-8);
+        const ids = this.knownDocIds();
+        if (!ids.includes(id)) ids.unshift(id);
+        localStorage.setItem(k, JSON.stringify(ids.slice(0, 200)));
+      },
+
+      async handleFiles(fileList) {
+        const files = Array.from(fileList || []);
+        for (const f of files) {
+          const item = { id: cryptoId(), name: f.name, size: f.size, status: 'uploading…' };
+          this.uploadingFiles.push(item);
+          try {
+            const fd = new FormData();
+            fd.append('file', f, f.name);
+            const r = await fetch('/v1/documents', {
+              method: 'POST',
+              headers: { Authorization: 'Bearer ' + this.apiKey },
+              body: fd,
+            });
+            if (!r.ok) {
+              const t = await r.text();
+              item.error = 'Upload failed (' + r.status + '): ' + t.slice(0, 120);
+              continue;
+            }
+            const j = await r.json();
+            item.status = 'queued';
+            this.addKnownDocId(j.id);
+          } catch (e) {
+            item.error = 'Network error';
+          }
+        }
+        // Drop completed entries after 4s, refresh table.
+        setTimeout(() => {
+          this.uploadingFiles = this.uploadingFiles.filter(u => u.error);
+        }, 4000);
+        this.loadDocuments();
+      },
+
+      statusBadgeClass(s) {
+        if (s === 'indexed')  return 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200';
+        if (s === 'failed')   return 'bg-red-50 text-red-700 ring-1 ring-red-200';
+        if (s === 'processing') return 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200';
+        return 'bg-amber-50 text-amber-700 ring-1 ring-amber-200';
+      },
+      statusDotClass(s) {
+        if (s === 'indexed') return 'bg-emerald-500';
+        if (s === 'failed')  return 'bg-red-500';
+        if (s === 'processing') return 'bg-indigo-500 animate-pulse';
+        return 'bg-amber-500 animate-pulse';
+      },
+
+      // ========================================================
+      // USAGE
+      // ========================================================
+      async loadUsage() {
+        try {
+          const r = await fetch('/v1/usage', { headers: { Authorization: 'Bearer ' + this.apiKey } });
+          if (r.ok) this.usage = await r.json();
+        } catch {}
+      },
+      get usageKpis() {
+        const rows = (this.usage && this.usage.rows) || [];
+        const queries = rows.filter(r => r.kind === 'query').reduce((a, r) => a + (r.events || 0), 0);
+        const inTok   = rows.filter(r => r.kind === 'query').reduce((a, r) => a + (r.input_tokens  || 0), 0);
+        const outTok  = rows.filter(r => r.kind === 'query').reduce((a, r) => a + (r.output_tokens || 0), 0);
+        const cost    = rows.reduce((a, r) => a + Number(r.cost_usd_micro || 0), 0);
+        const chunks  = rows.reduce((a, r) => a + (r.embed_chunks || 0), 0);
+        return [
+          { label: 'Queries (30d)',    value: queries.toLocaleString(),  sub: 'Calls to /v1/query' },
+          { label: 'Tokens in / out',  value: (inTok + outTok).toLocaleString(), sub: inTok + ' in, ' + outTok + ' out' },
+          { label: 'Embedded chunks',  value: chunks.toLocaleString(),   sub: 'Local BGE — no $ cost' },
+          { label: 'Estimated cost',   value: '$' + (cost / 1_000_000).toFixed(4), sub: '30-day rolling' },
+        ];
+      },
+      formatCostMicro(c) {
+        const v = Number(c || 0) / 1_000_000;
+        return '$' + v.toFixed(4);
+      },
+
+      // ========================================================
+      // ADMIN
+      // ========================================================
+      async loadTenants() {
+        try {
+          const r = await fetch('/admin/tenants', { headers: { Authorization: 'Bearer ' + this.adminToken } });
+          if (r.ok) {
+            const j = await r.json();
+            this.tenants = j.tenants || [];
+          }
+        } catch {}
+      },
+      closeCreateTenant() {
+        this.showCreateTenant = false;
+        this.newlyCreatedTenant = null;
+        this.newTenant = { name: '', rate_limit_query_rpm: '', rate_limit_ingest_rpm: '' };
+      },
+      async createTenant() {
+        if (!this.newTenant.name.trim()) return;
+        this.creatingTenant = true;
+        try {
+          const body = { name: this.newTenant.name.trim() };
+          if (this.newTenant.rate_limit_query_rpm)  body.rate_limit_query_rpm  = Number(this.newTenant.rate_limit_query_rpm);
+          if (this.newTenant.rate_limit_ingest_rpm) body.rate_limit_ingest_rpm = Number(this.newTenant.rate_limit_ingest_rpm);
+          const r = await fetch('/admin/tenants', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + this.adminToken },
+            body: JSON.stringify(body),
+          });
+          if (!r.ok) {
+            const t = await r.text();
+            this.showToast('Create failed: ' + t.slice(0, 160), 'error');
+            return;
+          }
+          this.newlyCreatedTenant = await r.json();
+          await this.loadTenants();
+        } finally { this.creatingTenant = false; }
+      },
+
+      // ========================================================
+      // HELPERS
+      // ========================================================
+      copy(text) {
+        navigator.clipboard.writeText(text)
+          .then(() => this.showToast('Copied to clipboard'))
+          .catch(() => this.showToast('Copy failed', 'error'));
+      },
+      showToast(text, kind = 'success') {
+        clearTimeout(this.toastTimer);
+        this.toast = { show: true, text, kind };
+        this.toastTimer = setTimeout(() => { this.toast.show = false; }, 2400);
+      },
+    };
+  }
+
+  // -------- standalone helpers --------
+  function cryptoId() {
+    return (crypto && crypto.randomUUID) ? crypto.randomUUID() : Math.random().toString(36).slice(2);
+  }
+  function formatBytes(n) {
+    if (!n && n !== 0) return '';
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+    return (n / (1024 * 1024)).toFixed(2) + ' MB';
+  }
+  function relTime(ts) {
+    if (!ts) return '';
+    const d = new Date(ts);
+    const diff = Math.floor((Date.now() - d.getTime()) / 1000);
+    if (diff < 60)        return diff + 's ago';
+    if (diff < 3600)      return Math.floor(diff / 60) + 'm ago';
+    if (diff < 86400)     return Math.floor(diff / 3600) + 'h ago';
+    if (diff < 86400 * 7) return Math.floor(diff / 86400) + 'd ago';
+    return d.toISOString().slice(0, 10);
+  }
+  // Expose helpers to Alpine templates.
+  window.formatBytes = formatBytes;
+  window.relTime = relTime;
+</script>
+
+</body>
+</html>
