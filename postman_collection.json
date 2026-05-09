@@ -1,0 +1,562 @@
+{
+  "info": {
+    "_postman_id": "8e5b1e9d-7a0c-4c2e-9f4a-2c1d6f9b1a01",
+    "name": "RAG Platform",
+    "description": "End-to-end test collection for the multi-tenant RAG platform.\n\n**Setup**\n1. Import this collection into Postman.\n2. The collection variables `base_url`, `api_key`, and `admin_token` are pre-set to the hosted demo. Override them in the collection's Variables tab to point at your own deployment or a local server.\n3. For upload requests, click the request → Body → select a file from your machine.\n\n**Workflow**\n- Run **Documents → Upload (text)** first; the test script captures the returned `id` into the `document_id` collection variable.\n- Then run **Documents → Get document status** until it returns `\"status\": \"indexed\"`.\n- Then run any **Query** request.\n\nNegative tests intentionally produce 4xx responses; the test scripts assert the right code.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      { "key": "token", "value": "{{api_key}}", "type": "string" }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://msmandy94-rag-platform.hf.space",
+      "type": "string",
+      "description": "Hosted demo. Use http://localhost:7860 for local."
+    },
+    {
+      "key": "api_key",
+      "value": "rag_su0VbkNg1eGg1iW15wPokMSxSFJkIV8SUwmLLLnBjzQ",
+      "type": "string",
+      "description": "Demo tenant API key."
+    },
+    {
+      "key": "admin_token",
+      "value": "admin_eS9fH2PqLn7vXcK4mD3RtBzWhN6yJ8aQ",
+      "type": "string",
+      "description": "Required for /admin/* endpoints."
+    },
+    {
+      "key": "document_id",
+      "value": "",
+      "type": "string",
+      "description": "Auto-populated by the Upload (text) test script."
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /health",
+          "request": {
+            "method": "GET",
+            "auth": { "type": "noauth" },
+            "header": [],
+            "url": { "raw": "{{base_url}}/health", "host": ["{{base_url}}"], "path": ["health"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('status=ok', () => pm.expect(pm.response.json().status).to.eql('ok'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /",
+          "request": {
+            "method": "GET",
+            "auth": { "type": "noauth" },
+            "header": [],
+            "url": { "raw": "{{base_url}}/", "host": ["{{base_url}}"], "path": [""] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('lists endpoints', () => pm.expect(pm.response.json().endpoints).to.be.an('array').and.not.empty);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "POST /admin/tenants — create tenant",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{admin_token}}", "type": "string" }]
+            },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"acme-{{$randomInt}}\",\n  \"rate_limit_query_rpm\": 120,\n  \"rate_limit_ingest_rpm\": 600\n}"
+            },
+            "url": { "raw": "{{base_url}}/admin/tenants", "host": ["{{base_url}}"], "path": ["admin", "tenants"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('returns tenant_id and api_key', () => {",
+                  "  pm.expect(j.tenant_id).to.be.a('string');",
+                  "  pm.expect(j.api_key).to.match(/^rag_/);",
+                  "});",
+                  "console.log('new tenant api_key (copy if you need it):', j.api_key);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Documents",
+      "item": [
+        {
+          "name": "POST /v1/documents — upload (text)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "",
+                  "description": "Pick a .txt file (e.g. scripts/sample.txt from the repo). Content-Type defaults to text/plain — set explicitly if Postman picks the wrong one."
+                }
+              ]
+            },
+            "url": { "raw": "{{base_url}}/v1/documents", "host": ["{{base_url}}"], "path": ["v1", "documents"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('returns document id', () => pm.expect(j.id).to.be.a('string'));",
+                  "pm.collectionVariables.set('document_id', j.id);",
+                  "console.log('document_id ->', j.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /v1/documents — upload (PDF)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "",
+                  "description": "Pick a .pdf file. Content-Type should be application/pdf."
+                }
+              ]
+            },
+            "url": { "raw": "{{base_url}}/v1/documents", "host": ["{{base_url}}"], "path": ["v1", "documents"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('document_id', j.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /v1/documents — upload (DOCX)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "",
+                  "description": "Pick a .docx file. Content-Type should be application/vnd.openxmlformats-officedocument.wordprocessingml.document."
+                }
+              ]
+            },
+            "url": { "raw": "{{base_url}}/v1/documents", "host": ["{{base_url}}"], "path": ["v1", "documents"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('document_id', j.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /v1/documents — idempotent re-upload",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "",
+                  "description": "Re-upload the SAME file you used in 'upload (text)'. The id returned should match — content_hash deduplicates."
+                }
+              ]
+            },
+            "url": { "raw": "{{base_url}}/v1/documents", "host": ["{{base_url}}"], "path": ["v1", "documents"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "const prev = pm.collectionVariables.get('document_id');",
+                  "pm.test('idempotent: returns the same document id', () => pm.expect(j.id).to.eql(prev));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /v1/documents/:id — status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/documents/{{document_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "documents", "{{document_id}}"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "console.log('status:', j.status, 'chunks:', j.chunk_count);",
+                  "pm.test('status is one of pending/processing/indexed/failed', () =>",
+                  "  pm.expect(['pending','processing','indexed','failed']).to.include(j.status));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Query",
+      "item": [
+        {
+          "name": "POST /v1/query — basic",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"What is the data retention period for customer records?\",\n  \"top_k\": 5\n}"
+            },
+            "url": { "raw": "{{base_url}}/v1/query", "host": ["{{base_url}}"], "path": ["v1", "query"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('answer present', () => pm.expect(j.answer).to.be.a('string').and.not.empty);",
+                  "pm.test('citations present', () => pm.expect(j.citations).to.be.an('array'));",
+                  "pm.test('provider populated', () => pm.expect(['groq','gemini','none']).to.include(j.provider));",
+                  "console.log('provider:', j.provider, 'latency_ms:', j.latency_ms);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /v1/query — multi-doc synthesis",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"Summarize the approved AI providers and the incident response SLAs.\",\n  \"top_k\": 8\n}"
+            },
+            "url": { "raw": "{{base_url}}/v1/query", "host": ["{{base_url}}"], "path": ["v1", "query"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('uses citations like [n]', () => pm.expect(j.answer).to.match(/\\[\\d+/));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /v1/query — restricted to one document",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"What does this document say?\",\n  \"top_k\": 5,\n  \"document_ids\": [\"{{document_id}}\"]\n}"
+            },
+            "url": { "raw": "{{base_url}}/v1/query", "host": ["{{base_url}}"], "path": ["v1", "query"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "const expected = pm.collectionVariables.get('document_id');",
+                  "pm.test('all citations come from the requested document', () => {",
+                  "  if (j.citations && j.citations.length > 0) {",
+                  "    j.citations.forEach(c => pm.expect(c.document_id).to.eql(expected));",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Usage",
+      "item": [
+        {
+          "name": "GET /v1/usage — 30d cost / tokens",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/v1/usage", "host": ["{{base_url}}"], "path": ["v1", "usage"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('rows is array', () => pm.expect(j.rows).to.be.an('array'));",
+                  "pm.test('tenant_id present', () => pm.expect(j.tenant_id).to.be.a('string'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Negative tests",
+      "item": [
+        {
+          "name": "GET /v1/documents — missing auth → 401",
+          "request": {
+            "method": "GET",
+            "auth": { "type": "noauth" },
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/documents/{{document_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "documents", "{{document_id}}"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('401', () => pm.response.to.have.status(401));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /v1/query — invalid api key → 401",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "rag_BAD_KEY", "type": "string" }]
+            },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"question\":\"x\"}" },
+            "url": { "raw": "{{base_url}}/v1/query", "host": ["{{base_url}}"], "path": ["v1", "query"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('401', () => pm.response.to.have.status(401));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /admin/tenants — missing admin token → 401",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "noauth" },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"name\":\"x\"}" },
+            "url": { "raw": "{{base_url}}/admin/tenants", "host": ["{{base_url}}"], "path": ["admin", "tenants"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('401', () => pm.response.to.have.status(401));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /admin/tenants — wrong admin token → 403",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "wrong-admin-token", "type": "string" }]
+            },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"name\":\"x\"}" },
+            "url": { "raw": "{{base_url}}/admin/tenants", "host": ["{{base_url}}"], "path": ["admin", "tenants"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('403', () => pm.response.to.have.status(403));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /v1/documents — unsupported mime type → 415",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "",
+                  "description": "Pick any .zip / .png / .mp4 — anything not in the supported list."
+                }
+              ]
+            },
+            "url": { "raw": "{{base_url}}/v1/documents", "host": ["{{base_url}}"], "path": ["v1", "documents"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('415', () => pm.response.to.have.status(415));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /v1/documents/:nonexistent → 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/documents/00000000-0000-0000-0000-000000000000",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "documents", "00000000-0000-0000-0000-000000000000"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('404', () => pm.response.to.have.status(404));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /v1/query — missing question → 422",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"top_k\": 3}" },
+            "url": { "raw": "{{base_url}}/v1/query", "host": ["{{base_url}}"], "path": ["v1", "query"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('422 (validation)', () => pm.response.to.have.status(422));"]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

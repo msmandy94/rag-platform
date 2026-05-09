@@ -45,6 +45,10 @@ curl -sS "$API/v1/usage" -H "Authorization: Bearer $KEY"
 If you want your own tenant, ping the admin endpoint with the
 `ADMIN_TOKEN` (the deployer holds this) — see [Admin section](#admin).
 
+### Postman
+
+A complete Postman collection lives at [`postman_collection.json`](./postman_collection.json) — import it into Postman (`File → Import`). It pre-fills the demo `base_url`, `api_key`, and `admin_token`, captures the returned `document_id` automatically, and includes happy-path + negative-test requests for every endpoint.
+
 The Hugging Face Spaces frontmatter at the top of this file lets the same repo
 double as the deployment manifest — push the repo to a Space and HF builds and
 runs the Dockerfile.
