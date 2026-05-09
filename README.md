@@ -14,8 +14,36 @@ A working implementation of a multi-tenant Retrieval-Augmented Generation backen
 covering document ingestion, hybrid retrieval, RAG synthesis with citations,
 tenant isolation, rate limiting, cost tracking, and provider failover.
 
-> **Hosted demo**: _link added after deployment_
-> **Repo**: _link added after push_
+> **Hosted demo:** https://msmandy94-rag-platform.hf.space
+> **Repo:** https://github.com/msmandy94/rag-platform
+
+## Graders — quick start
+
+A demo tenant is pre-seeded. Use this API key against the hosted demo:
+
+```bash
+API=https://msmandy94-rag-platform.hf.space
+KEY=rag_su0VbkNg1eGg1iW15wPokMSxSFJkIV8SUwmLLLnBjzQ
+
+# 1. Upload a document
+curl -sS -X POST "$API/v1/documents" \
+  -H "Authorization: Bearer $KEY" \
+  -F "file=@/path/to/your.pdf;type=application/pdf"
+
+# 2. Wait until status == "indexed"
+curl -sS "$API/v1/documents/<id>" -H "Authorization: Bearer $KEY"
+
+# 3. Ask a question
+curl -sS -X POST "$API/v1/query" \
+  -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"question":"What does this document say about X?","top_k":5}'
+
+# 4. See per-tenant usage / cost
+curl -sS "$API/v1/usage" -H "Authorization: Bearer $KEY"
+```
+
+If you want your own tenant, ping the admin endpoint with the
+`ADMIN_TOKEN` (the deployer holds this) — see [Admin section](#admin).
 
 The Hugging Face Spaces frontmatter at the top of this file lets the same repo
 double as the deployment manifest — push the repo to a Space and HF builds and
@@ -73,6 +101,18 @@ GET  /v1/documents/{id}        (tenant token)  ingestion status
 POST /v1/query                 (tenant token)  RAG with citations
 GET  /v1/usage                 (tenant token)  30-day token / cost breakdown
 GET  /health
+```
+
+### Admin
+
+To create a new tenant:
+
+```bash
+curl -sS -X POST "$API/admin/tenants" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"my-tenant","rate_limit_query_rpm":120}'
+# -> returns {tenant_id, name, api_key} -- the api_key is only ever returned once
 ```
 
 ---
