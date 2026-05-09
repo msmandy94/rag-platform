@@ -248,6 +248,112 @@ async def list_documents(
     )
 
 
+class DocumentChunk(BaseModel):
+    index: int
+    text: str
+
+
+class DocumentPreview(BaseModel):
+    id: str
+    filename: str
+    mime_type: str
+    status: str
+    chunk_count: int
+    chunks: list[DocumentChunk]
+
+
+@router.get("/v1/documents/{document_id}/text", response_model=DocumentPreview)
+async def get_document_text(
+    document_id: str, tenant: Tenant = Depends(require_tenant)
+) -> DocumentPreview:
+    """Return the document's extracted text, chunk by chunk.
+
+    Reading from `chunks` (the indexed text we actually retrieve from) gives
+    a faithful preview of what the retriever sees, including any extraction
+    artifacts. Cheap: ~10s of chunks at ~800 chars each.
+    """
+    async with pool().acquire() as conn:
+        doc = await conn.fetchrow(
+            """
+            SELECT id::text, filename, mime_type, status, chunk_count
+            FROM documents WHERE id = $1 AND tenant_id = $2
+            """,
+            document_id,
+            tenant.id,
+        )
+        if doc is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "document not found")
+        rows = await conn.fetch(
+            """
+            SELECT chunk_index, text FROM chunks
+            WHERE document_id = $1 AND tenant_id = $2
+            ORDER BY chunk_index
+            """,
+            document_id,
+            tenant.id,
+        )
+    return DocumentPreview(
+        id=doc["id"],
+        filename=doc["filename"],
+        mime_type=doc["mime_type"],
+        status=doc["status"],
+        chunk_count=doc["chunk_count"],
+        chunks=[DocumentChunk(index=r["chunk_index"], text=r["text"]) for r in rows],
+    )
+
+
+@router.delete("/v1/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_document_route(
+    document_id: str, tenant: Tenant = Depends(require_tenant)
+) -> Response:
+    """Delete a document and all of its chunks from Postgres + Qdrant.
+
+    Order matters: we delete the vectors first, then the SQL rows. If Qdrant
+    fails the SQL data survives and the user can retry. The reverse order
+    can leave orphaned vectors that retrieval would happily score against
+    chunks that no longer exist.
+
+    We delete vectors by point ID (chunks.id == Qdrant point id), not by
+    payload filter — Qdrant Cloud requires an indexed payload field for
+    filter-based delete and we'd rather not maintain that index.
+    """
+    from app.qdrant import delete_chunks as qdrant_delete_chunks
+
+    async with pool().acquire() as conn:
+        owned = await conn.fetchval(
+            "SELECT 1 FROM documents WHERE id = $1 AND tenant_id = $2",
+            document_id,
+            tenant.id,
+        )
+        if not owned:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "document not found")
+
+        chunk_ids = [
+            r["id"]
+            for r in await conn.fetch(
+                "SELECT id::text FROM chunks WHERE document_id = $1 AND tenant_id = $2",
+                document_id,
+                tenant.id,
+            )
+        ]
+
+    try:
+        await qdrant_delete_chunks(tenant.id, chunk_ids)
+    except Exception as e:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            f"vector store delete failed: {e}",
+        )
+
+    async with pool().acquire() as conn:
+        await conn.execute(
+            "DELETE FROM documents WHERE id = $1 AND tenant_id = $2",
+            document_id,
+            tenant.id,
+        )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 # ---------- Query -------------------------------------------------------
 
 class QueryRequest(BaseModel):

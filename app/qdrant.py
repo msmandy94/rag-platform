@@ -96,11 +96,17 @@ async def search(
     return [(str(p.id), float(p.score), p.payload or {}) for p in res.points]
 
 
-async def delete_document(tenant_id: str, document_id: str) -> None:
+async def delete_chunks(tenant_id: str, chunk_ids: list[str]) -> None:
+    """Delete by point IDs.
+
+    Avoids requiring a payload index on `document_id`, which Qdrant Cloud
+    enforces for delete-by-filter operations. Caller fetches the chunk IDs
+    from Postgres (the chunks.id is also the Qdrant point id).
+    """
+    if not chunk_ids:
+        return
     name = await ensure_collection(tenant_id)
     await (await client()).delete(
         collection_name=name,
-        points_selector=Filter(
-            must=[FieldCondition(key="document_id", match=MatchValue(value=document_id))]
-        ),
+        points_selector=list(chunk_ids),
     )

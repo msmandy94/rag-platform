@@ -422,11 +422,12 @@
                       <th class="px-5 py-2.5">Chunks</th>
                       <th class="px-5 py-2.5">Size</th>
                       <th class="px-5 py-2.5">Uploaded</th>
+                      <th class="px-5 py-2.5 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody class="divide-y divide-slate-100">
                     <template x-if="!documents.length">
-                      <tr><td colspan="5" class="px-5 py-10 text-center text-sm text-slate-500">No documents yet — upload one above.</td></tr>
+                      <tr><td colspan="6" class="px-5 py-10 text-center text-sm text-slate-500">No documents yet — upload one above.</td></tr>
                     </template>
                     <template x-for="d in documents" :key="d.id">
                       <tr class="hover:bg-slate-50/60">
@@ -446,6 +447,25 @@
                         <td class="px-5 py-3 text-sm text-slate-600 font-mono" x-text="d.chunk_count"></td>
                         <td class="px-5 py-3 text-sm text-slate-600" x-text="formatBytes(d.size_bytes)"></td>
                         <td class="px-5 py-3 text-sm text-slate-500" x-text="relTime(d.created_at)"></td>
+                        <td class="px-5 py-3 text-right">
+                          <div class="inline-flex items-center gap-1">
+                            <button
+                              @click="openPreview(d)"
+                              :disabled="d.status !== 'indexed'"
+                              :title="d.status !== 'indexed' ? 'Available once indexed' : 'Preview'"
+                              class="p-1.5 rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                            </button>
+                            <button
+                              @click="confirmDelete(d)"
+                              title="Delete"
+                              class="p-1.5 rounded-md text-slate-500 hover:bg-red-50 hover:text-red-600"
+                            >
+                              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6"/></svg>
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     </template>
                   </tbody>
@@ -573,6 +593,93 @@
       </main>
 
       <!-- =========================== -->
+      <!-- DOCUMENT PREVIEW MODAL       -->
+      <!-- =========================== -->
+      <template x-if="preview">
+        <div class="fixed inset-0 z-40 flex items-center justify-center px-4 py-8">
+          <div class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" @click="closePreview()"></div>
+          <div class="relative bg-white rounded-2xl shadow-xl ring-1 ring-slate-200 w-full max-w-3xl max-h-[85vh] flex flex-col">
+            <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between gap-4 min-w-0">
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2">
+                  <h3 class="text-base font-semibold tracking-tight truncate" x-text="preview.filename"></h3>
+                  <template x-if="preview.data">
+                    <span :class="statusBadgeClass(preview.data.status)" class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium flex-shrink-0">
+                      <span x-text="preview.data.status"></span>
+                    </span>
+                  </template>
+                </div>
+                <template x-if="preview.data">
+                  <div class="text-xs text-slate-500 mt-0.5 font-mono">
+                    <span x-text="preview.data.chunk_count"></span> chunks · <span x-text="preview.data.mime_type"></span>
+                  </div>
+                </template>
+              </div>
+              <button @click="closePreview()" class="p-1.5 rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700 flex-shrink-0">
+                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 6 12 12M6 18 18 6"/></svg>
+              </button>
+            </div>
+            <div class="flex-1 overflow-y-auto px-6 py-5 scrollbar-thin">
+              <template x-if="preview.loading">
+                <div class="text-sm text-slate-500 inline-flex items-center gap-2">
+                  <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-opacity="0.3" stroke-width="3"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+                  Loading…
+                </div>
+              </template>
+              <template x-if="preview.error">
+                <div class="text-sm text-red-600" x-text="preview.error"></div>
+              </template>
+              <template x-if="preview.data && !preview.loading && !preview.error">
+                <div class="space-y-5">
+                  <template x-if="!preview.data.chunks.length">
+                    <div class="text-sm text-slate-500 italic">No chunks yet — the document may still be processing.</div>
+                  </template>
+                  <template x-for="c in preview.data.chunks" :key="c.index">
+                    <div>
+                      <div class="text-[11px] uppercase tracking-wide text-slate-400 font-medium mb-1.5">
+                        Chunk <span x-text="c.index"></span>
+                      </div>
+                      <pre class="text-[13px] leading-relaxed text-slate-700 whitespace-pre-wrap font-sans" x-text="c.text"></pre>
+                    </div>
+                  </template>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- =========================== -->
+      <!-- DELETE CONFIRM MODAL         -->
+      <!-- =========================== -->
+      <template x-if="pendingDelete">
+        <div class="fixed inset-0 z-40 flex items-center justify-center px-4">
+          <div class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" @click="if (!deleting) pendingDelete = null"></div>
+          <div class="relative bg-white rounded-2xl shadow-xl ring-1 ring-slate-200 p-6 w-full max-w-sm">
+            <div class="flex items-start gap-3">
+              <div class="flex-shrink-0 inline-flex h-9 w-9 items-center justify-center rounded-full bg-red-50 text-red-600">
+                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+              </div>
+              <div class="min-w-0">
+                <h3 class="text-base font-semibold tracking-tight">Delete document?</h3>
+                <p class="mt-1 text-sm text-slate-600 break-words"><span x-text="pendingDelete.filename"></span> and its <span x-text="pendingDelete.chunk_count"></span> chunks will be removed from Qdrant and Postgres. This cannot be undone.</p>
+              </div>
+            </div>
+            <div class="mt-5 flex justify-end gap-2">
+              <button @click="pendingDelete = null" :disabled="deleting" class="px-3 py-2 text-sm font-medium text-slate-700 hover:text-slate-900 disabled:opacity-60">Cancel</button>
+              <button @click="doDelete()" :disabled="deleting" class="rounded-lg bg-red-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-red-500 disabled:opacity-60 inline-flex items-center gap-1.5">
+                <span x-show="!deleting">Delete</span>
+                <span x-show="deleting" class="inline-flex items-center gap-1.5">
+                  <svg class="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-opacity="0.3" stroke-width="3"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+                  Deleting
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- =========================== -->
       <!-- CREATE TENANT MODAL          -->
       <!-- =========================== -->
       <template x-if="showCreateTenant">
@@ -686,6 +793,9 @@
       uploadingFiles: [],
       dragActive: false,
       docPollTimer: null,
+      preview: null,           // { filename, loading, error, data }
+      pendingDelete: null,     // document object
+      deleting: false,
 
       // -------- usage --------
       usage: null,
@@ -893,6 +1003,52 @@
         if (s === 'failed')  return 'bg-red-500';
         if (s === 'processing') return 'bg-indigo-500 animate-pulse';
         return 'bg-amber-500 animate-pulse';
+      },
+
+      async openPreview(d) {
+        this.preview = { filename: d.filename, loading: true, error: '', data: null };
+        try {
+          const r = await fetch('/v1/documents/' + d.id + '/text', {
+            headers: { Authorization: 'Bearer ' + this.apiKey },
+          });
+          if (!r.ok) {
+            const t = await r.text();
+            this.preview.error = 'Failed (' + r.status + '): ' + t.slice(0, 200);
+          } else {
+            this.preview.data = await r.json();
+          }
+        } catch (e) {
+          this.preview.error = 'Network error: ' + (e && e.message);
+        } finally {
+          if (this.preview) this.preview.loading = false;
+        }
+      },
+      closePreview() { this.preview = null; },
+
+      confirmDelete(d) { this.pendingDelete = d; },
+      async doDelete() {
+        if (!this.pendingDelete || this.deleting) return;
+        const d = this.pendingDelete;
+        this.deleting = true;
+        try {
+          const r = await fetch('/v1/documents/' + d.id, {
+            method: 'DELETE',
+            headers: { Authorization: 'Bearer ' + this.apiKey },
+          });
+          if (!r.ok && r.status !== 204) {
+            const t = await r.text();
+            this.showToast('Delete failed: ' + t.slice(0, 160), 'error');
+            return;
+          }
+          this.documents = this.documents.filter(x => x.id !== d.id);
+          this.showToast('Deleted "' + d.filename + '"');
+          this.pendingDelete = null;
+          this.loadUsage();  // chunk counts may shift
+        } catch (e) {
+          this.showToast('Network error', 'error');
+        } finally {
+          this.deleting = false;
+        }
       },
 
       // ========================================================
