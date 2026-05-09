@@ -203,6 +203,51 @@ async def get_document(document_id: str, tenant: Tenant = Depends(require_tenant
     return DocumentOut(**dict(row))
 
 
+class DocumentsList(BaseModel):
+    documents: list[DocumentOut]
+    count: int
+    limit: int
+    offset: int
+
+
+@router.get("/v1/documents", response_model=DocumentsList)
+async def list_documents(
+    tenant: Tenant = Depends(require_tenant),
+    limit: int = 100,
+    offset: int = 0,
+) -> DocumentsList:
+    """Paginated list of the calling tenant's documents, newest first.
+
+    Hard ceiling on `limit` keeps a forgetful client from fetching 10M rows.
+    Real prod would expose a cursor; LIMIT/OFFSET is fine for the demo.
+    """
+    limit = max(1, min(int(limit), 500))
+    offset = max(0, int(offset))
+    async with pool().acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT id::text, filename, mime_type, size_bytes, status, chunk_count, error,
+                   to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at
+            FROM documents
+            WHERE tenant_id = $1
+            ORDER BY created_at DESC
+            LIMIT $2 OFFSET $3
+            """,
+            tenant.id,
+            limit,
+            offset,
+        )
+        cnt = await conn.fetchval(
+            "SELECT COUNT(*) FROM documents WHERE tenant_id = $1", tenant.id
+        )
+    return DocumentsList(
+        documents=[DocumentOut(**dict(r)) for r in rows],
+        count=int(cnt or 0),
+        limit=limit,
+        offset=offset,
+    )
+
+
 # ---------- Query -------------------------------------------------------
 
 class QueryRequest(BaseModel):

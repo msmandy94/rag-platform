@@ -836,35 +836,19 @@
       // DOCUMENTS
       // ========================================================
       async loadDocuments() {
-        // The platform doesn't expose a "list documents" endpoint in v1; the
-        // table here is built from the documents we've uploaded in this
-        // session (persisted in localStorage by id) plus per-doc /v1/documents/:id.
-        const ids = this.knownDocIds();
-        const out = [];
-        for (const id of ids) {
-          try {
-            const r = await fetch('/v1/documents/' + id, { headers: { Authorization: 'Bearer ' + this.apiKey } });
-            if (r.ok) out.push(await r.json());
-          } catch {}
-        }
-        out.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
-        this.documents = out;
+        try {
+          const r = await fetch('/v1/documents?limit=200', {
+            headers: { Authorization: 'Bearer ' + this.apiKey },
+          });
+          if (!r.ok) { return; }
+          const j = await r.json();
+          this.documents = j.documents || [];
+        } catch {}
         // Keep polling while any doc is still processing.
         clearInterval(this.docPollTimer);
-        if (out.some(d => d.status === 'pending' || d.status === 'processing')) {
+        if (this.documents.some(d => d.status === 'pending' || d.status === 'processing')) {
           this.docPollTimer = setInterval(() => this.loadDocuments(), 3000);
         }
-      },
-
-      knownDocIds() {
-        const k = 'rag.docs.' + this.apiKey.slice(-8);
-        try { return JSON.parse(localStorage.getItem(k) || '[]'); } catch { return []; }
-      },
-      addKnownDocId(id) {
-        const k = 'rag.docs.' + this.apiKey.slice(-8);
-        const ids = this.knownDocIds();
-        if (!ids.includes(id)) ids.unshift(id);
-        localStorage.setItem(k, JSON.stringify(ids.slice(0, 200)));
       },
 
       async handleFiles(fileList) {
@@ -885,9 +869,8 @@
               item.error = 'Upload failed (' + r.status + '): ' + t.slice(0, 120);
               continue;
             }
-            const j = await r.json();
+            await r.json();  // body has the document; loadDocuments() refresh covers it
             item.status = 'queued';
-            this.addKnownDocId(j.id);
           } catch (e) {
             item.error = 'Network error';
           }
