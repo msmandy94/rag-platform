@@ -904,8 +904,13 @@
         const q = (this.question || '').trim();
         if (!q || this.asking) return;
         this.messages.push({ role: 'user', text: q });
-        const placeholder = { role: 'assistant', loading: true, stage: 'Retrieving and synthesizing…' };
-        this.messages.push(placeholder);
+        this.messages.push({ role: 'assistant', loading: true, stage: 'Retrieving and synthesizing…' });
+        // Mutate via array index so Alpine's proxy sees the changes — keeping
+        // a local reference to the pushed object would mutate the unwrapped
+        // target and skip reactivity.
+        const idx = this.messages.length - 1;
+        const patch = (changes) => { this.messages[idx] = { ...this.messages[idx], ...changes }; };
+
         this.question = ''; this.asking = true;
         this.scrollChatToBottom();
         try {
@@ -916,20 +921,19 @@
           });
           if (!r.ok) {
             const err = await r.text();
-            placeholder.loading = false;
-            placeholder.text = '';
-            placeholder.error = 'Request failed (' + r.status + '): ' + err.slice(0, 200);
+            patch({ loading: false, text: '', error: 'Request failed (' + r.status + '): ' + err.slice(0, 200) });
             return;
           }
           const j = await r.json();
-          placeholder.loading = false;
-          placeholder.text = j.answer;
-          placeholder.citations = j.citations;
-          placeholder.meta = { provider: j.provider, latency_ms: j.latency_ms, input_tokens: j.input_tokens, output_tokens: j.output_tokens };
+          patch({
+            loading: false,
+            text: j.answer,
+            citations: j.citations,
+            meta: { provider: j.provider, latency_ms: j.latency_ms, input_tokens: j.input_tokens, output_tokens: j.output_tokens },
+          });
           this.scrollChatToBottom();
         } catch (e) {
-          placeholder.loading = false;
-          placeholder.error = 'Network error: ' + (e && e.message);
+          patch({ loading: false, error: 'Network error: ' + (e && e.message) });
         } finally {
           this.asking = false;
         }
@@ -964,8 +968,9 @@
       async handleFiles(fileList) {
         const files = Array.from(fileList || []);
         for (const f of files) {
-          const item = { id: cryptoId(), name: f.name, size: f.size, status: 'uploading…' };
-          this.uploadingFiles.push(item);
+          this.uploadingFiles.push({ id: cryptoId(), name: f.name, size: f.size, status: 'uploading…' });
+          const idx = this.uploadingFiles.length - 1;
+          const patch = (changes) => { this.uploadingFiles[idx] = { ...this.uploadingFiles[idx], ...changes }; };
           try {
             const fd = new FormData();
             fd.append('file', f, f.name);
@@ -976,13 +981,13 @@
             });
             if (!r.ok) {
               const t = await r.text();
-              item.error = 'Upload failed (' + r.status + '): ' + t.slice(0, 120);
+              patch({ error: 'Upload failed (' + r.status + '): ' + t.slice(0, 120) });
               continue;
             }
-            await r.json();  // body has the document; loadDocuments() refresh covers it
-            item.status = 'queued';
+            await r.json();
+            patch({ status: 'queued' });
           } catch (e) {
-            item.error = 'Network error';
+            patch({ error: 'Network error' });
           }
         }
         // Drop completed entries after 4s, refresh table.
